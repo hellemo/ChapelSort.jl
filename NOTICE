@@ -1,0 +1,33 @@
+ChapelSort.jl
+Copyright 2026 Lars Hellemo
+
+This product includes software derived from the Chapel programming language
+(https://github.com/chapel-lang/chapel):
+    Copyright 2020-2026 Hewlett Packard Enterprise Development LP
+    Copyright 2004-2019 Cray Inc.
+licensed under the Apache License, Version 2.0.
+
+ChapelSort.jl is an independent Julia reimplementation of the design of
+Chapel's standard library sort; no Chapel source code is included. The
+following files follow Chapel's design, structure and parameter choices and
+are marked as modified derivatives in their headers:
+
+    src/two_array.jl     Chapel modules/standard/Sort/TwoArrayPartitioning.chpl
+                         and TwoArrayRadixSort.chpl (parallel two-array
+                         partitioning: per-task counts, bucket-major prefix
+                         sum, scatter, big/small task queues)
+    src/serial_msd.jl    Chapel modules/standard/Sort/MSBRadixSort.chpl
+                         (serial MSD radix sort for small subproblems)
+    src/keys.jl          Chapel modules/standard/Sort.chpl, defaultComparator
+                         key parts (order-preserving unsigned keys)
+    src/strings.jl       Chapel modules/standard/Sort.chpl, string key parts
+                         (byte-wise keys with an end-of-string marker)
+    src/psort.jl         Chapel modules/standard/Sort.chpl (dispatch between
+                         the serial and parallel radix sorts by input size)
+    bench/chapel/sortbench.chpl
+                         benchmark from the Chapel blog post "Comparing
+                         Standard Library Sorts: The Impact of Parallelism"
+                         (M. Ferguson, 2024)
+
+All other files are original work, Copyright 2026 Lars Hellemo, licensed
+under the Apache License, Version 2.0 (see LICENSE).

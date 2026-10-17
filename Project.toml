@@ -1,0 +1,26 @@
+name = "ChapelSort"
+uuid = "b557a38e-b6f0-494b-a80d-8b33d309e162"
+version = "0.1.0"
+authors = ["Lars Hellemo <lars.hellemo@sintef.no>"]
+license = "Apache-2.0"
+
+[weakdeps]
+InlineStrings = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
+PooledArrays = "2dfb63ee-cc39-5dd5-95bd-886bf059d720"
+
+[extensions]
+ChapelSortInlineStringsExt = "InlineStrings"
+ChapelSortPooledArraysExt = "PooledArrays"
+
+[compat]
+InlineStrings = "1.4"
+PooledArrays = "1.4"
+julia = "1.10"
+
+[extras]
+InlineStrings = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
+PooledArrays = "2dfb63ee-cc39-5dd5-95bd-886bf059d720"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["InlineStrings", "PooledArrays", "Test"]

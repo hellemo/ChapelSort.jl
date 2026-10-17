@@ -1,0 +1,18 @@
+# This file is machine-generated - editing it directly is not advised
+
+julia_version = "1.13.2"
+manifest_format = "2.1"
+project_hash = "51095a991c8fd9e27fe98b5b10a0dd2ced257cb4"
+
+[[deps.ChapelSort]]
+path = "."
+uuid = "b557a38e-b6f0-494b-a80d-8b33d309e162"
+version = "0.1.0"
+
+    [deps.ChapelSort.extensions]
+    ChapelSortInlineStringsExt = "InlineStrings"
+    ChapelSortPooledArraysExt = "PooledArrays"
+
+    [deps.ChapelSort.weakdeps]
+    InlineStrings = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
+    PooledArrays = "2dfb63ee-cc39-5dd5-95bd-886bf059d720"
