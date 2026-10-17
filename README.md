@@ -70,9 +70,16 @@ Why chunk-sort + merge doesn't keep up:
 ## Results
 
 2^27 random `UInt64` (1 GiB), mean of 5 runs, on an Intel Core Ultra 7 268V laptop
-(4 performance and 4 low-power efficiency cores) with Julia 1.13.1 and Chapel 2.10.0.
+(4 performance and 4 low-power efficiency cores) with Julia 1.13.2 and Chapel 2.10.0.
 Chapel's `sort` allocates its scratch array on every call, so the fair comparison is
-`psort!` with a *fresh* scratch array.
+`psort!` with a *fresh* scratch array. The Chapel numbers come from an earlier session
+on the same machine (Julia 1.13.1).
+
+[ParallelRadixSort.jl (fork)](https://github.com/hellemo/ParallelRadixSort.jl) is a
+fork of [tkf/ParallelRadixSort.jl](https://github.com/tkf/ParallelRadixSort.jl), a
+parallel MSD radix sort for Julia from 2021. The fork makes it load on current Julia
+and fixes thread safety, NaN, reverse-order and string bugs. Its default
+`ParallelMSDRadixSort` is used here.
 
 ![Throughput vs number of tasks for psort! and Chapel sort](docs/scaling.svg)
 
@@ -80,19 +87,20 @@ Chapel's `sort` allocates its scratch array on every call, so the fair compariso
 
 | Method (8 threads)                | Time (s) | M elem/s |
 |-----------------------------------|---------:|---------:|
-| `Base.sort!` (serial)             |    3.043 |     44.1 |
-| chunk sort + parallel merge       |    1.946 |     69.0 |
-| `AcceleratedKernels.sort!`        |    1.421 |     94.4 |
+| `Base.sort!` (serial)             |    3.147 |     42.7 |
+| chunk sort + parallel merge       |    1.642 |     81.7 |
+| `AcceleratedKernels.sort!`        |    1.292 |    103.9 |
+| ParallelRadixSort.jl (fork)       |    0.794 |    169.1 |
 | Chapel 2.10 `sort`                |    0.520 |    258.2 |
-| `psort!`, fresh scratch           |    0.451 |    297.6 |
-| `psort!`, reused scratch          |    0.376 |    356.6 |
+| `psort!`, fresh scratch           |    0.475 |    282.6 |
+| `psort!`, reused scratch          |    0.394 |    340.8 |
 
 | Tasks | Chapel `sort` (s) | `psort!` fresh (s) | `psort!` reused (s) |
 |------:|------------------:|-------------------:|--------------------:|
-| 1     | 2.409             | 2.289              | 2.137               |
-| 2     | 1.268             | 1.185              | 1.076               |
-| 4     | 0.692             | 0.640              | 0.597               |
-| 8     | 0.520             | 0.451              | 0.376               |
+| 1     | 2.409             | 2.502              | 2.242               |
+| 2     | 1.268             | 1.166              | 1.111               |
+| 4     | 0.692             | 0.724              | 0.595               |
+| 8     | 0.520             | 0.475              | 0.394               |
 
 Run-to-run noise on this laptop is ±10–15%.
 
@@ -106,22 +114,24 @@ From `bench/strings.jl`: 10^7 values, 8 threads, best of 3, against Base `sort!`
 
 ![Speedup of psort! and psortperm over Base for strings, symbols and numbers](docs/strings.svg)
 
-| Values (10^7)                     | `sort!` | `psort!` | × | `sortperm` | `psortperm` | × |
-|-----------------------------------|--------:|---------:|--:|-----------:|------------:|--:|
-| `String`, random, length 8–20     | 5.13 s | 0.315 s | 16.3 | 11.48 s | 0.456 s | 25.2 |
-| `String`, h2o id3 (`id%010d`)     | 2.70 s | 0.299 s |  9.0 |  6.22 s | 0.462 s | 13.5 |
-| `String15`, h2o id3               | 0.260 s | 0.106 s | 2.5 |  1.74 s | 0.185 s |  9.4 |
-| `String7`, 100 levels             | 0.068 s | 0.035 s | 1.9 |  1.36 s | 0.084 s | 16.1 |
-| `Symbol`, 10^5 distinct           | 1.32 s | 0.098 s | 13.4 |  3.93 s | 0.246 s | 16.0 |
-| `Int64`                           | 0.234 s | 0.039 s | 6.0 |  1.59 s | 0.071 s | 22.4 |
-| `Float64` (randn)                 | 0.235 s | 0.047 s | 5.1 |  1.57 s | 0.081 s | 19.2 |
-| `PooledArray{String}`, 10^5 levels | — | — | — | 0.174 s | 0.054 s | 3.2 |
+| Values (10^7)                      | `sort!` | `psort!` | × | ParallelRadixSort.jl (fork) | × | `sortperm` | `psortperm` | × |
+|------------------------------------|--------:|---------:|--:|---------------:|--:|-----------:|------------:|--:|
+| `String`, random, length 8–20      | 4.98 s  | 0.305 s | 16.3 | 0.341 s | 14.6 | 11.24 s | 0.457 s | 24.6 |
+| `String`, h2o id3 (`id%010d`)      | 2.41 s  | 0.279 s |  8.6 | 0.429 s |  5.6 |  5.65 s | 0.390 s | 14.5 |
+| `String15`, h2o id3                | 0.251 s | 0.076 s |  3.3 | 0.253 s |  1.0 |  1.65 s | 0.160 s | 10.3 |
+| `String7`, 100 levels              | 0.067 s | 0.036 s |  1.9 | 0.083 s |  0.8 |  1.33 s | 0.073 s | 18.4 |
+| `Symbol`, 10^5 distinct            | 1.30 s  | 0.095 s | 13.7 | unsupported | — |  3.80 s | 0.225 s | 16.9 |
+| `Int64`                            | 0.234 s | 0.040 s |  5.8 | 0.066 s |  3.6 |  1.49 s | 0.073 s | 20.3 |
+| `Float64` (randn)                  | 0.255 s | 0.043 s |  5.9 | 0.062 s |  4.1 |  1.56 s | 0.078 s | 20.0 |
+| `PooledArray{String}`, 10^5 levels | — | — | — | — | — | 0.151 s | 0.051 s | 2.9 |
 
 - InlineStrings already ship a fast serial LSD radix sort for `sort!`. For
   `PooledArray`, PooledArrays already does sort the pool, then counting-sort, serially.
   Both are smaller wins.
 - `psortperm` sorts (key, index) records with the same radix machinery. Keys of up
   to 32 bits are packed with the index into one `UInt64`.
+- ParallelRadixSort.jl has no `sortperm` and no `Symbol` support. It reads InlineStrings
+  byte by byte rather than as one integer key.
 
 ### Reproducing
 
@@ -132,7 +142,9 @@ julia -t 8 --project=bench bench/strings.jl 1e7 3     # writes bench/results/str
 julia --project=bench bench/plots.jl                  # AlgebraOfGraphics → docs/*.svg
 ```
 
-Sizes are chosen for a 16 GB machine: 2^27 `UInt64` is 1 GiB, plus 1 GiB of scratch.
+The bench environment expects the ParallelRadixSort.jl fork in a sibling directory
+(`../ParallelRadixSort.jl`, see `bench/Project.toml`). Sizes are chosen for a 16 GB
+machine: 2^27 `UInt64` is 1 GiB, plus 1 GiB of scratch.
 
 ## Implementation notes / lessons
 

@@ -2,7 +2,7 @@
 
 julia_version = "1.13.2"
 manifest_format = "2.1"
-project_hash = "f71060efcbc791eb9b2f02eda85bb504229eead7"
+project_hash = "cf5202dcf264f82c6061eb3b985cd17fe9d6e894"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -1399,6 +1399,12 @@ registries = "General"
 uuid = "36c8627f-9965-5494-a995-c6b170f724f3"
 version = "1.58.2+0"
 
+[[deps.ParallelRadixSort]]
+deps = ["ArgCheck", "ConstructionBase", "StaticArrays", "StaticNumbers"]
+path = "../../ParallelRadixSort.jl"
+uuid = "0471ff11-bf0e-49ef-b43a-a8b1ab3eb48f"
+version = "0.1.0"
+
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools"]
 git-tree-sha1 = "663e8b48b789916221e0765393b289ca6c88f24e"
@@ -1734,6 +1740,12 @@ git-tree-sha1 = "6ab403037779dae8c514bad259f32a447262455a"
 registries = "General"
 uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
 version = "1.4.4"
+
+[[deps.StaticNumbers]]
+git-tree-sha1 = "b54bf9e3b0914394584270460284692720071d64"
+registries = "General"
+uuid = "c5e4b96a-f99f-5557-8ed2-dc63ef9b5131"
+version = "0.4.0"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]

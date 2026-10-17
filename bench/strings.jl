@@ -17,6 +17,7 @@
 # Writes bench/results/strings.csv.
 
 using ChapelSort, InlineStrings, PooledArrays, Random, Printf
+using ParallelRadixSort: ParallelMSDRadixSort
 
 const N = length(ARGS) >= 1 ? round(Int, parse(Float64, ARGS[1])) : 10^7
 const REPS = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 3
@@ -31,6 +32,8 @@ function timeit(f, setup)
     end
 end
 
+prs!(v) = sort!(v, firstindex(v), lastindex(v), ParallelMSDRadixSort, Base.Forward)
+
 function case(name, x)
     for (op, base, ours) in (("sort", sort!, psort!), ("sortperm", sortperm, psortperm))
         tb = timeit(base, () -> copy(x))
@@ -38,6 +41,20 @@ function case(name, x)
         @printf("%-34s %-8s Base %7.3f s   ChapelSort %7.3f s   %5.1fx\n", name, op, tb, tp, tb / tp)
         push!(ROWS, (; case = name, op, method = "Base", seconds = tb))
         push!(ROWS, (; case = name, op, method = "ChapelSort", seconds = tp))
+    end
+    # ParallelRadixSort.jl (fork) has no sortperm; record its sort only when
+    # it supports the type and gets it right.
+    ok = try
+        isequal(prs!(copy(x)), sort(x))
+    catch
+        false
+    end
+    if ok
+        tr = timeit(prs!, () -> copy(x))
+        @printf("%-34s %-8s ParallelRadixSort.jl (fork) %7.3f s\n", name, "sort", tr)
+        push!(ROWS, (; case = name, op = "sort", method = "ParallelRadixSort", seconds = tr))
+    else
+        @printf("%-34s %-8s ParallelRadixSort.jl (fork): unsupported or wrong result\n", name, "sort")
     end
 end
 

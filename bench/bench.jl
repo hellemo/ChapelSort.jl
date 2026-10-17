@@ -18,6 +18,7 @@
 
 using ChapelSort
 import AcceleratedKernels as AK
+using ParallelRadixSort: ParallelMSDRadixSort
 using Printf
 
 const LOG2N = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 27
@@ -94,6 +95,10 @@ function main()
     tbase = bench("Base.sort!", sort!, x, y)
     bench("chunk sort + parallel merge", v -> chunk_merge_sort!(v, tmp), x, y)
     bench("AcceleratedKernels.sort!", v -> AK.sort!(v; temp = tmp), x, y)
+    # hellemo/ParallelRadixSort.jl, a fork of tkf/ParallelRadixSort.jl fixed for
+    # current Julia (sibling directory, see bench/Project.toml)
+    bench("ParallelRadixSort.jl (fork)",
+          v -> sort!(v, firstindex(v), lastindex(v), ParallelMSDRadixSort, Base.Forward), x, y)
     nts = unique(filter(<=(nt), [1, 2, 4, 8, 16, 32, nt]))
     for k in nts
         t = bench("ChapelSort.psort! ntasks=$k", v -> psort!(v; ntasks = k, scratch = s),

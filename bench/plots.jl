@@ -81,6 +81,7 @@ function methods_plot(df, nmax)
     labels = ["Base.sort!" => "Base.sort!",
               "chunk sort + parallel merge" => "chunk sort + merge",
               "AcceleratedKernels.sort!" => "AcceleratedKernels.sort!",
+              "ParallelRadixSort.jl (fork)" => "ParallelRadixSort.jl (fork)",
               "Chapel sort" => "Chapel sort",
               "psort! (fresh scratch)" => "psort! (fresh scratch)",
               "psort! (reused scratch)" => "psort! (reused scratch)"]
@@ -131,15 +132,19 @@ end
 function strings_plot()
     r = CSV.read(joinpath(RESULTS, "strings.csv"), DataFrame)
     w = unstack(r, [:case, :op], :method, :seconds)
-    w.speedup = w.Base ./ w.ChapelSort
-    w.label = w.case
-    w.series = ifelse.(w.op .== "sort", "psort! vs sort!", "psortperm vs sortperm")
-    labels = reverse(unique(w.label))
-    n = first(r.n)
-    return speedup_plot(w, labels, ["psort! vs sort!", "psortperm vs sortperm"],
+    series = ["psort! vs sort!", "psortperm vs sortperm",
+              "ParallelRadixSort.jl (fork) vs sort!"]
+    rows = DataFrame(label = String[], series = String[], speedup = Float64[])
+    for x in eachrow(w)
+        push!(rows, (x.case, x.op == "sort" ? series[1] : series[2], x.Base / x.ChapelSort))
+        prs = "ParallelRadixSort" in names(w) ? x.ParallelRadixSort : missing
+        x.op == "sort" && !ismissing(prs) && push!(rows, (x.case, series[3], x.Base / prs))
+    end
+    labels = reverse(unique(rows.label))
+    return speedup_plot(rows, labels, series,
                         "Sorting 10^7 values: speedup over Base",
                         "$(Int(first(r.nthreads))) threads · higher is better · dashed line = Base";
-                        size = (760, 560))
+                        size = (780, 700))
 end
 
 function main()

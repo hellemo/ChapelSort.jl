@@ -6,9 +6,11 @@ CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 ChapelSort = "b557a38e-b6f0-494b-a80d-8b33d309e162"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 InlineStrings = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
+ParallelRadixSort = "0471ff11-bf0e-49ef-b43a-a8b1ab3eb48f"
 PooledArrays = "2dfb63ee-cc39-5dd5-95bd-886bf059d720"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [sources]
 ChapelSort = {path = ".."}
+ParallelRadixSort = {path = "../../ParallelRadixSort.jl"}
