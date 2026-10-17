@@ -14,7 +14,7 @@ Contents
 1. [Overview and notation](#1-overview-and-notation)
 2. [Order-preserving keys](#2-order-preserving-keys)
 3. [The parallel two-array partition step](#3-the-parallel-two-array-partition-step)
-4. [Skip-ahead over shared digits](#4-skip-ahead-over-shared-digits)
+4. [Skip-ahead over shared digits](#4-skip-ahead-over-shared-digits) and the [key-range pre-pass](#key-range-pre-pass)
 5. [Big tasks, small tasks and scheduling](#5-big-tasks-small-tasks-and-scheduling)
 6. [The serial two-array MSD sort](#6-the-serial-two-array-msd-sort)
 7. [Floating-point keys](#7-floating-point-keys)
@@ -212,6 +212,34 @@ shared digit. Examples are small integers stored in 64 bits, timestamps from a
 narrow window, and strings like `"id0000012345"`. The serial sort of §6 applies
 the same rule.
 
+### Key-range pre-pass
+
+For fixed-width keys, ChapelSort replaces those repeated counting passes with
+one pass that computes the minimum and maximum key, when that can pay off. All
+keys lie in $[k_{\min}, k_{\max}]$, so they share every leading byte on which
+$k_{\min}$ and $k_{\max}$ agree. Let $\Delta = k_{\max} - k_{\min}$. Before
+the first partition step (inputs of at least 4096 elements):
+
+1. **Sample.** Compute the minimum and maximum of about 1024 evenly strided
+   keys. If they already differ in the top byte and span at least $2^{16}$
+   values, the true range is at least as wide, so the pre-pass cannot help and is
+   skipped. Uniformly random keys therefore pay only for the sample.
+2. **Exact range.** Otherwise compute $k_{\min}$ and $k_{\max}$ in one parallel
+   pass. If $\Delta = 0$, all keys are equal and nothing is done.
+3. **Small range.** If $\Delta + 1 < \min(2^{16}, n)$, sort with a single
+   stable **counting sort** with $\Delta + 1$ buckets, $b(x) = k(x) - k_{\min} + 1$.
+   This is the partition step of §3 (per-task counts, bucket-major prefix sum,
+   scatter) with one bucket per key value, followed by a parallel copy back.
+4. **Otherwise** start the radix sort at level
+   $\ell_0 = \lfloor \mathrm{clz}(k_{\min} \oplus k_{\max}) / 8 \rfloor$, where
+   $\mathrm{clz}$ counts leading zero bits. That is the first byte on which
+   $k_{\min}$ and $k_{\max}$ differ.
+
+For example, $2^{26}$ keys from $0..1000$ stored as `UInt64` take one counting
+pass with 1001 buckets, instead of six skip-ahead counting passes plus two radix
+levels: 3× faster, and 1.6× faster than Base's serial counting sort. Julia's Base
+subtracts the minimum before its serial radix and counting sorts in the same way.
+
 ---
 
 ## 5. Big tasks, small tasks and scheduling
@@ -331,16 +359,21 @@ the sort is stable, records with equal keys keep increasing $i$, which is exactl
 the stable permutation `sortperm` must return. The index is stored as a 32-bit
 integer when $n \le 2^{32} - 1$.
 
-**Packing.** When the key has at most 32 bits and $n \le 2^{32}$, each record
-becomes one 64-bit word,
+**Packing.** When all keys fit in 32 bits after subtracting $k_{\min}$, and
+$n \le 2^{32}$, each record becomes one 64-bit word,
 
 $$
-r_i = k(x_i)\cdot 2^{32} + (i - 1),
+r_i = \bigl(k(x_i) - k_{\min}\bigr)\cdot 2^{32} + (i - 1),
 $$
 
 and the radix sort treats only the high 32 bits as the key (levels $0..3$ of $r$).
 The low half is never inspected, so a long run of equal keys costs no extra
 passes, and stability still gives increasing $i$ within equal keys.
+- For keys of at most 32 bits, $k_{\min} = 0$.
+- For wider keys, the same sample and min/max check as in the
+  [key-range pre-pass](#key-range-pre-pass) decides whether the range fits.
+- The packed sort then gets its own range pre-pass, so small ranges become a
+  single counting sort of the words.
 
 **Multiple columns** $(c_1, \dots, c_q)$ in lexicographic order, each with its own
 direction. This uses the classical **least-significant-column-first** method,
@@ -407,7 +440,8 @@ The reasons below were measured on the benchmark machine (8-core laptop, Julia
 | Thresholds | serial below 50 000; small-range threshold from tasks × 4096 and $n/p$ | same values (§5) | — |
 | Small-task scheduling | parallel loop over small ranges | largest-first, atomic-counter work queue | balances unequal buckets |
 | Scatter buffers | none | none: software write-combining buffers [6, 7] were tried and were **slower** (1.5–2.1 vs 1.0–1.5 ns/element) | Julia's plain scatter is already TLB-friendly enough at 256 buckets on this machine |
-| `sortperm` | — | packed key/index words for ≤ 32-bit keys (§8) | avoids extra passes on low index bits |
+| Narrow key ranges | skip-ahead counts once per shared byte | sampled min/max pre-pass: counting sort for $< 2^{16}$ distinct values, otherwise start at the first differing byte (§4) | 3× faster on keys in 0:1000; no cost for wide ranges |
+| `sortperm` | — | packed key/index words when the key range fits in 32 bits (§8) | avoids extra passes on low index bits |
 | Pooled columns | — | sort by pool rank (§8) | string comparisons only on the pool |
 
 Julia-specific requirements, each of which cost 1.5× to 20× when violated:

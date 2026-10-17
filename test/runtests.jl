@@ -158,6 +158,25 @@ end
         end
     end
 
+    @testset "small key ranges" begin
+        for n in (5000, 60_000, 300_000)
+            for x in (rand(UInt64(0):UInt64(1000), n),               # counting sort
+                      rand(Int64(-5):Int64(5), n),
+                      rand(UInt128(2)^100 .+ (0:UInt128(70_000)), n),  # level skip, UInt128
+                      rand(Int32(1) << 20 .+ (0:Int32(100_000)), n),   # just above RANGE_MAX
+                      Float64.(rand(1:10, n)),
+                      rand(Int8, n), rand(Bool, n))
+                @test isequal(psort(x), sort(x))
+                @test isequal(psort(x; rev = true), sort(x; rev = true))
+                @test psortperm(x) == sortperm(x)
+            end
+            y = [(rand(1:50), i) for i in 1:n]                     # stability via by
+            @test psort(y; by = first) == sort(y; by = first)
+            @test psort(y; by = first, rev = true) == sort(y; by = first, rev = true)
+            @test psort(fill(UInt64(7), n)) == fill(UInt64(7), n)
+        end
+    end
+
     @testset "ChapelSortAlg and psortperm!" begin
         x = rand(Int, 100_000)
         @test sort(x; alg = ChapelSortAlg()) == sort(x)

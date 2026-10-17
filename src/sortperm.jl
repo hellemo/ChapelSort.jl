@@ -37,29 +37,45 @@ function psortperm(v::AbstractVector; by = identity, rev::Bool = false,
     return _psortperm(v, ks, max(1, Int(ntasks)))
 end
 
-nthreads_for(n, nT) = n < PARALLEL_CUTOFF ? 1 : nT
-
 function _psortperm(v::AbstractVector, ks::FixedKey{K}, nT::Int) where {K}
     n = length(v)
-    off = firstindex(v) - 1
     nT = nthreads_for(n, nT)
     perm = Vector{Int}(undef, n)
-    if sizeof(K) <= 4 && n <= typemax(UInt32)
-        p = Vector{UInt64}(undef, n)
-        foreach_block(1, n, nT) do _, lo, hi
-            @inbounds for i in lo:hi
-                p[i] = UInt64(ks.kf(v[i + off])) << 32 | UInt64(i - 1)
+    if n <= typemax(UInt32)
+        sizeof(K) <= 4 && return packed_sortperm!(perm, v, ks, zero(K), nT)
+        # Wider keys whose range fits in 32 bits (small integers stored in 64
+        # bits, timestamps from a window, ...) are packed relative to their
+        # minimum. The sample check keeps wide-range keys from paying for it.
+        if n >= RANGE_PREPASS_MIN
+            smin, smax = sample_extrema(v, ks)
+            if smax - smin <= typemax(UInt32)
+                kmin, kmax = key_extrema(v, ks, nT)
+                kmax - kmin <= typemax(UInt32) &&
+                    return packed_sortperm!(perm, v, ks, kmin, nT)
             end
         end
-        radix_sort!(p, similar(p), FixedKey{UInt32}(HiKey()), nT)
-        foreach_block(1, n, nT) do _, lo, hi
-            @inbounds for i in lo:hi
-                perm[i] = Int(p[i] % UInt32) + 1 + off
-            end
-        end
-        return perm
     end
     return records_sortperm!(perm, v, ks.kf, FixedKey{K}(GetKey()), nT)
+end
+
+# Sort one-word records (key - kmin) << 32 | (i - 1) by their high half; the
+# radix sort's own range pre-pass turns small ranges into a counting sort.
+function packed_sortperm!(perm, v, ks::FixedKey{K}, kmin::K, nT::Int) where {K}
+    n = length(v)
+    off = firstindex(v) - 1
+    p = Vector{UInt64}(undef, n)
+    foreach_block(1, n, nT) do _, lo, hi
+        @inbounds for i in lo:hi
+            p[i] = UInt64(ks.kf(v[i + off]) - kmin) << 32 | UInt64(i - 1)
+        end
+    end
+    radix_sort!(p, similar(p), FixedKey{UInt32}(HiKey()), nT)
+    foreach_block(1, n, nT) do _, lo, hi
+        @inbounds for i in lo:hi
+            perm[i] = Int(p[i] % UInt32) + 1 + off
+        end
+    end
+    return perm
 end
 
 function _psortperm(v::AbstractVector, ks::StrKey{R}, nT::Int) where {R}

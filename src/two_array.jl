@@ -28,6 +28,9 @@
 const PARALLEL_CUTOFF = 50_000
 const SEQUENTIAL_SIZE_PER_TASK = 4096
 
+# Use one task below the cutoff, where spawning costs more than it saves.
+nthreads_for(n, nT) = n < PARALLEL_CUTOFF ? 1 : nT
+
 struct SortTask
     lo::Int
     hi::Int
@@ -110,7 +113,7 @@ function run_small_tasks!(A, S, small::Vector{SortTask}, ks::KeySpec, nT)
     return nothing
 end
 
-function two_array_sort!(A, S, ks::KeySpec, nT::Int)
+function two_array_sort!(A, S, ks::KeySpec, nT::Int, level0::Int = 0)
     lo, hi = firstindex(A), lastindex(A)
     n = hi - lo + 1
     nb = nbuckets(ks)
@@ -119,7 +122,7 @@ function two_array_sort!(A, S, ks::KeySpec, nT::Int)
     binsizes = Vector{Int}(undef, nb)
     big = SortTask[]
     small = SortTask[]
-    push!(n > maxseq ? big : small, SortTask(lo, hi, 0, true))
+    push!(n > maxseq ? big : small, SortTask(lo, hi, level0, true))
     while !isempty(big)
         tk = pop!(big)
         level, moved = tk.inA ?
@@ -151,12 +154,105 @@ function two_array_sort!(A, S, ks::KeySpec, nT::Int)
     return A
 end
 
-# Sort A with scratch S (same axes) using up to nT tasks.
-function radix_sort!(A, S, ks::KeySpec, nT::Int)
+# Sort A with scratch S (same axes) using up to nT tasks, starting at digit
+# level `level0` (all keys must agree on the digits before it).
+function radix_sort!(A, S, ks::KeySpec, nT::Int, level0::Int = 0)
     if length(A) < PARALLEL_CUTOFF || nT <= 1
-        msd_sort!(A, S, firstindex(A), lastindex(A), 0, true, ks, Vector{Int}[])
+        msd_sort!(A, S, firstindex(A), lastindex(A), level0, true, ks, Vector{Int}[])
     else
-        two_array_sort!(A, S, ks, nT)
+        two_array_sort!(A, S, ks, nT, level0)
+    end
+    return A
+end
+
+# --- Key-range pre-pass (fixed-width keys) ------------------------------------
+#
+# Keys confined to a small range waste work in a byte-wise MSD sort: every
+# leading byte shared by all keys costs a skip-ahead counting pass, and a range
+# like 0:1000 still needs two full levels. One min/max pass fixes both: a range
+# of fewer than RANGE_MAX values (and fewer than n) is sorted by a single
+# parallel counting sort with one bucket per value; otherwise the radix sort
+# starts at the first byte where min and max differ. A strided sample decides
+# first whether the pre-pass can help at all, so wide-range (e.g. uniformly
+# random) keys pay only for the sample.
+
+const RANGE_MAX = 1 << 16
+const RANGE_PREPASS_MIN = 4096
+const RANGE_SAMPLE = 1024
+
+function radix_sort!(A, S, ks::FixedKey{K}, nT::Int) where {K}
+    n = length(A)
+    n < RANGE_PREPASS_MIN && return radix_sort!(A, S, ks, nT, 0)
+    smin, smax = sample_extrema(A, ks)
+    if leading_zeros(smin ⊻ smax) < 8 && smax - smin >= RANGE_MAX
+        return radix_sort!(A, S, ks, nT, 0)        # wide range: pre-pass can't help
+    end
+    kmin, kmax = key_extrema(A, ks, nthreads_for(n, nT))
+    kmin == kmax && return A                       # all keys equal
+    d = kmax - kmin
+    if d < min(RANGE_MAX, n)
+        return counting_sort!(A, S, ks, kmin, Int(d) + 1, nthreads_for(n, nT))
+    end
+    return radix_sort!(A, S, ks, nT, leading_zeros(kmin ⊻ kmax) ÷ 8)
+end
+
+function sample_extrema(A, ks::FixedKey{K}) where {K}
+    lo, n = firstindex(A), length(A)
+    step = max(1, n ÷ RANGE_SAMPLE)
+    kmin, kmax = typemax(K), typemin(K)
+    @inbounds for i in lo:step:(lo + n - 1)
+        k = ks.kf(A[i])
+        kmin = min(kmin, k)
+        kmax = max(kmax, k)
+    end
+    return kmin, kmax
+end
+
+function key_extrema(A, ks::FixedKey{K}, nT::Int) where {K}
+    mins = fill(typemax(K), nT)
+    maxs = fill(typemin(K), nT)
+    foreach_block(firstindex(A), lastindex(A), nT) do t, blo, bhi
+        kmin, kmax = typemax(K), typemin(K)
+        @inbounds for i in blo:bhi
+            k = ks.kf(A[i])
+            kmin = min(kmin, k)
+            kmax = max(kmax, k)
+        end
+        mins[t], maxs[t] = kmin, kmax
+    end
+    return minimum(mins), maximum(maxs)
+end
+
+# Stable parallel counting sort with r buckets for keys in kmin:kmin+r-1: the
+# partition step of §3 (per-task counts, bucket-major prefix sum, scatter) with
+# one bucket per key value, followed by a parallel copy back.
+function counting_sort!(A, S, ks::FixedKey{K}, kmin::K, r::Int, nT::Int) where {K}
+    lo, hi = firstindex(A), lastindex(A)
+    counts = [zeros(Int, r) for _ in 1:nT]
+    foreach_block(lo, hi, nT) do t, blo, bhi
+        c = counts[t]
+        @inbounds for i in blo:bhi
+            c[Int(ks.kf(A[i]) - kmin) + 1] += 1
+        end
+    end
+    pos = lo
+    @inbounds for b in 1:r, t in 1:nT
+        c = counts[t][b]
+        counts[t][b] = pos
+        pos += c
+    end
+    foreach_block(lo, hi, nT) do t, blo, bhi
+        c = counts[t]
+        @inbounds for i in blo:bhi
+            x = A[i]
+            b = Int(ks.kf(x) - kmin) + 1
+            p = c[b]
+            S[p] = x
+            c[b] = p + 1
+        end
+    end
+    foreach_block(lo, hi, nT) do _, blo, bhi
+        copyto!(A, blo, S, blo, bhi - blo + 1)
     end
     return A
 end

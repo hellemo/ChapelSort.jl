@@ -49,6 +49,10 @@ The algorithm is an out-of-place MSD radix sort with 8-bit digits and one scratc
      pair a private output region.
    - Each task scatters its block with no locks or atomics.
 2. **Skip-ahead**: if all keys share the digit, try the next one without moving data.
+   For fixed-width keys a sampled min/max pre-pass goes further. Fewer than 2^16
+   distinct key values are sorted by one parallel counting sort; otherwise the sort
+   starts at the first byte where min and max differ. On 2^26 keys in 0:1000 this
+   takes 0.055 s, against 0.089 s for Base.
 3. Buckets still larger than `max(n/ntasks, 4096·ntasks)` are bucketized again in
    parallel, in the opposite direction.
 4. All other buckets become **small tasks**. They are processed largest first by a
